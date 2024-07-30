@@ -2,7 +2,7 @@
 import { Box, Stack, Typography, Button, Modal, TextField, Container, Grid, Card, CardContent, CardActions } from '@mui/material'
 import { firestore } from '@/firebase'
 import { useEffect, useState } from 'react'
-import { collection, query, doc, addDoc, getDoc, deleteDoc, getDocs, updateDoc, setDoc } from 'firebase/firestore'
+import { collection, query, doc, addDoc, getDoc, deleteDoc, updateDoc, setDoc, onSnapshot } from 'firebase/firestore'
 import React from 'react'
 
 const modalStyle = {
@@ -28,27 +28,50 @@ export default function Home() {
   const [groupModalOpen, setGroupModalOpen] = useState(false)
   const [groupKey, setGroupKey] = useState('')
 
-  useEffect(() => {
-    if (pantryAddress) {
-      updatePantry()
-    }
-  }, [pantryAddress])
-
-  const updatePantry = async () => {
-    if (!pantryAddress) return;
-    const pantryList = [];
-    const snapshot = query(collection(firestore, `pantries/${pantryAddress}/items`));
-    const docs = await getDocs(snapshot);
-    docs.forEach(doc => {
-      pantryList.push({ id: doc.id, ...doc.data() });
-    });
-    setPantry(pantryList);
+  const savePantryAddress = (address) => {
+    localStorage.setItem('pantryAddress', address);
   };
+
+  const loadPantryAddress = () => {
+    return localStorage.getItem('pantryAddress');
+  };
+
+  const setupRealtimeListener = () => {
+    if (!pantryAddress) return;
+
+    const unsubscribe = onSnapshot(collection(firestore, `pantries/${pantryAddress}/items`), (snapshot) => {
+      const pantryList = [];
+      snapshot.forEach((doc) => {
+        pantryList.push({ id: doc.id, ...doc.data() });
+      });
+      setPantry(pantryList);
+    });
+
+    return unsubscribe;
+  };
+
+  useEffect(() => {
+    const savedAddress = loadPantryAddress();
+    if (savedAddress) {
+      setPantryAddress(savedAddress);
+    }
+  }, []);
+
+  useEffect(() => {
+    let unsubscribe;
+    if (pantryAddress) {
+      unsubscribe = setupRealtimeListener();
+    }
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, [pantryAddress]);
 
   const addItem = async () => {
     if (!pantryAddress) return;
-    const docRef = await addDoc(collection(firestore, `pantries/${pantryAddress}/items`), { name: itemName, quantity: itemQuantity });
-    setPantry(prevPantry => [...prevPantry, { id: docRef.id, name: itemName, quantity: itemQuantity }]);
+    await addDoc(collection(firestore, `pantries/${pantryAddress}/items`), { name: itemName, quantity: itemQuantity });
     setOpen(false);
     setItemName('');
     setItemQuantity(1);
@@ -57,24 +80,20 @@ export default function Home() {
   const removeItem = async (id) => {
     if (!pantryAddress) return;
     await deleteDoc(doc(firestore, `pantries/${pantryAddress}/items`, id));
-    setPantry(prevPantry => prevPantry.filter(i => i.id !== id));
   };
 
   const editItemQuantity = async (id, newQuantity) => {
     if (!pantryAddress) return;
     await updateDoc(doc(firestore, `pantries/${pantryAddress}/items`, id), { quantity: newQuantity });
-    setPantry(prevPantry => prevPantry.map(item => 
-      item.id === id ? { ...item, quantity: newQuantity } : item
-    ));
   };
 
   const createGroup = async () => {
     const newGroupKey = Math.random().toString(36).substring(2, 8).toUpperCase();
     await setDoc(doc(firestore, 'pantries', newGroupKey), { created: new Date() });
     setPantryAddress(newGroupKey);
+    savePantryAddress(newGroupKey);
     setGroupModalOpen(false);
   };
-
 
   const joinGroup = async () => {
     if (groupKey) {
@@ -82,12 +101,18 @@ export default function Home() {
       const groupDocSnapshot = await getDoc(groupDocRef);
       if (groupDocSnapshot.exists()) {
         setPantryAddress(groupKey);
+        savePantryAddress(groupKey);
         setGroupModalOpen(false);
       } else {
         // Handle case when group does not exist
         console.log('Group does not exist');
       }
     }
+  };
+
+  const leaveGroup = () => {
+    setPantryAddress('');
+    savePantryAddress('');
   };
 
   const filteredPantry = pantry.filter(item => 
@@ -109,9 +134,14 @@ export default function Home() {
           </Box>
         ) : (
           <>
-            <Typography variant="h6" gutterBottom>
-              Pantry ID: {pantryAddress}
-            </Typography>
+            <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
+              <Typography variant="h6">
+                Pantry ID: {pantryAddress}
+              </Typography>
+              <Button variant="outlined" color="secondary" onClick={leaveGroup}>
+                Leave Group
+              </Button>
+            </Box>
             <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
               <TextField
                 label="Search Pantry"
