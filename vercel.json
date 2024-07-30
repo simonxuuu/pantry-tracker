@@ -2,7 +2,7 @@
     "version": 2,
     "builds": [
       {
-        "src": "pantry-tracker/next.config.mjs",
+        "src": "pantry-tracker/package.json",
         "use": "@vercel/next"
       }
     ],
@@ -12,4 +12,4 @@
         "dest": "/pantry-tracker/$1"
       }
     ]
-  }
+}
