@@ -19,11 +19,16 @@ const modalStyle = {
 
 export default function Home() {
   const [pantry, setPantry] = useState([])
+  const [recipes, setRecipes] = useState([])
   const [open, setOpen] = useState(false)
+  const [recipeOpen, setRecipeOpen] = useState(false)
   const [itemName, setItemName] = useState('')
   const [itemQuantity, setItemQuantity] = useState(1)
+  const [recipeName, setRecipeName] = useState('')
+  const [recipeIngredients, setRecipeIngredients] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [editItem, setEditItem] = useState(null)
+  const [editRecipe, setEditRecipe] = useState(null)
   const [pantryAddress, setPantryAddress] = useState('')
   const [groupModalOpen, setGroupModalOpen] = useState(false)
   const [groupKey, setGroupKey] = useState('')
@@ -39,7 +44,7 @@ export default function Home() {
   const setupRealtimeListener = () => {
     if (!pantryAddress) return;
 
-    const unsubscribe = onSnapshot(collection(firestore, `pantries/${pantryAddress}/items`), (snapshot) => {
+    const unsubscribePantry = onSnapshot(collection(firestore, `pantries/${pantryAddress}/items`), (snapshot) => {
       const pantryList = [];
       snapshot.forEach((doc) => {
         pantryList.push({ id: doc.id, ...doc.data() });
@@ -47,7 +52,18 @@ export default function Home() {
       setPantry(pantryList);
     });
 
-    return unsubscribe;
+    const unsubscribeRecipes = onSnapshot(collection(firestore, `pantries/${pantryAddress}/recipes`), (snapshot) => {
+      const recipesList = [];
+      snapshot.forEach((doc) => {
+        recipesList.push({ id: doc.id, ...doc.data() });
+      });
+      setRecipes(recipesList);
+    });
+
+    return () => {
+      unsubscribePantry();
+      unsubscribeRecipes();
+    };
   };
 
   useEffect(() => {
@@ -104,7 +120,6 @@ export default function Home() {
         savePantryAddress(groupKey);
         setGroupModalOpen(false);
       } else {
-        // Handle case when group does not exist
         console.log('Group does not exist');
       }
     }
@@ -115,15 +130,36 @@ export default function Home() {
     savePantryAddress('');
   };
 
-  const filteredPantry = pantry.filter(item => 
-    item.name.toLowerCase().includes(searchQuery.toLowerCase())
+  const addRecipe = async () => {
+    if (!pantryAddress) return;
+    await addDoc(collection(firestore, `pantries/${pantryAddress}/recipes`), { name: recipeName, ingredients: recipeIngredients.split(',').map(item => item.trim()) });
+    setRecipeOpen(false);
+    setRecipeName('');
+    setRecipeIngredients('');
+  };
+
+  const removeRecipe = async (id) => {
+    if (!pantryAddress) return;
+    await deleteDoc(doc(firestore, `pantries/${pantryAddress}/recipes`, id));
+  };
+
+  const editRecipeDetails = async (id, name, ingredients) => {
+    if (!pantryAddress) return;
+    await updateDoc(doc(firestore, `pantries/${pantryAddress}/recipes`, id), { name, ingredients: ingredients.split(',').map(item => item.trim()) });
+    setEditRecipe(null);
+  };
+
+  const filteredPantry = pantry.filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
+
+  const filteredRecipes = recipes.filter(recipe =>
+    recipe.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
     <Container maxWidth="md">
       <Box py={4}>
         <Typography variant="h2" component="h1" gutterBottom align="center">
-          Pantry Items
+          Pantry Items & Recipes
         </Typography>
 
         {!pantryAddress ? (
@@ -149,14 +185,14 @@ export default function Home() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
-              <Button
-                variant="contained"
-                onClick={() => setOpen(true)}
-              >
+              <Button variant="contained" onClick={() => setOpen(true)}>
                 Add Item
               </Button>
             </Box>
 
+            <Typography variant="h5" component="h2" gutterBottom>
+              Pantry Items
+            </Typography>
             <Grid container spacing={3}>
               {filteredPantry.map((item) => (
                 <Grid item xs={12} sm={6} md={4} key={item.id}>
@@ -170,17 +206,50 @@ export default function Home() {
                       </Typography>
                     </CardContent>
                     <CardActions>
-                      <Button 
-                        size="small"
-                        onClick={() => setEditItem(item)}
-                      >
+                      <Button size="small" onClick={() => setEditItem(item)}>
                         Edit
                       </Button>
-                      <Button 
-                        size="small"
-                        color="error"
-                        onClick={() => removeItem(item.id)}
-                      >
+                      <Button size="small" color="error" onClick={() => removeItem(item.id)}>
+                        Remove
+                      </Button>
+                    </CardActions>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+
+            <Box display="flex" justifyContent="space-between" alignItems="center" mt={4} mb={2}>
+              <TextField
+                label="Search Recipes"
+                variant="outlined"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              <Button variant="contained" onClick={() => setRecipeOpen(true)}>
+                Add Recipe
+              </Button>
+            </Box>
+
+            <Typography variant="h5" component="h2" gutterBottom>
+              Recipes
+            </Typography>
+            <Grid container spacing={3}>
+              {filteredRecipes.map((recipe) => (
+                <Grid item xs={12} sm={6} md={4} key={recipe.id}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" component="div">
+                        {recipe.name}
+                      </Typography>
+                      <Typography color="text.secondary">
+                        Ingredients: {recipe.ingredients.join(', ')}
+                      </Typography>
+                    </CardContent>
+                    <CardActions>
+                      <Button size="small" onClick={() => setEditRecipe(recipe)}>
+                        Edit
+                      </Button>
+                      <Button size="small" color="error" onClick={() => removeRecipe(recipe.id)}>
                         Remove
                       </Button>
                     </CardActions>
@@ -266,6 +335,49 @@ export default function Home() {
       </Modal>
 
       <Modal
+        open={recipeOpen}
+        onClose={() => setRecipeOpen(false)}
+        aria-labelledby="add-recipe-modal"
+      >
+        <Box sx={modalStyle}>
+          <Typography id="add-recipe-modal" variant="h6" component="h2" gutterBottom>
+            Add Recipe
+          </Typography>
+          <TextField
+            autoFocus
+            margin="dense"
+            id="recipe"
+            label="Recipe Name"
+            type="text"
+            fullWidth
+            variant="outlined"
+            value={recipeName}
+            onChange={(e) => setRecipeName(e.target.value)}
+          />
+          <TextField
+            margin="dense"
+            id="ingredients"
+            label="Ingredients (comma separated)"
+            type="text"
+            fullWidth
+            variant="outlined"
+            value={recipeIngredients}
+            onChange={(e) => setRecipeIngredients(e.target.value)}
+          />
+          <Box mt={2} display="flex" justifyContent="flex-end">
+            <Button onClick={() => setRecipeOpen(false)}>Cancel</Button>
+            <Button 
+              variant="contained" 
+              onClick={addRecipe}
+              disabled={!recipeName.trim() || !recipeIngredients.trim()}
+            >
+              Add
+            </Button>
+          </Box>
+        </Box>
+      </Modal>
+
+      <Modal
         open={!!editItem}
         onClose={() => setEditItem(null)}
         aria-labelledby="edit-item-modal"
@@ -296,6 +408,52 @@ export default function Home() {
                 setEditItem(null);
               }}
               disabled={editItem?.quantity < 1}
+            >
+              Update
+            </Button>
+          </Box>
+        </Box>
+      </Modal>
+
+      <Modal
+        open={!!editRecipe}
+        onClose={() => setEditRecipe(null)}
+        aria-labelledby="edit-recipe-modal"
+      >
+        <Box sx={modalStyle}>
+          <Typography id="edit-recipe-modal" variant="h6" component="h2" gutterBottom>
+            Edit Recipe
+          </Typography>
+          <TextField
+            autoFocus
+            margin="dense"
+            id="recipe-name"
+            label="Recipe Name"
+            type="text"
+            fullWidth
+            variant="outlined"
+            value={editRecipe?.name || ''}
+            onChange={(e) => setEditRecipe(prev => ({ ...prev, name: e.target.value }))}
+          />
+          <TextField
+            margin="dense"
+            id="recipe-ingredients"
+            label="Ingredients (comma separated)"
+            type="text"
+            fullWidth
+            variant="outlined"
+            value={editRecipe?.ingredients.join(', ') || ''}
+            onChange={(e) => setEditRecipe(prev => ({ ...prev, ingredients: e.target.value.split(',').map(item => item.trim()) }))}
+          />
+          <Box mt={2} display="flex" justifyContent="flex-end">
+            <Button onClick={() => setEditRecipe(null)}>Cancel</Button>
+            <Button 
+              variant="contained" 
+              onClick={() => {
+                editRecipeDetails(editRecipe.id, editRecipe.name, editRecipe.ingredients);
+                setEditRecipe(null);
+              }}
+              disabled={!editRecipe?.name.trim() || !editRecipe?.ingredients.length}
             >
               Update
             </Button>
